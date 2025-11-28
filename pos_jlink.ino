@@ -18,9 +18,12 @@ const char* ssid = "SCAM ALERT";
 const char* password = "Fakemode@06";
 
 // ==================== XAMPP SERVER CONFIGURATION ====================
-// ⚠️ YOUR COMPUTER'S IP ADDRESS ⚠️
-const String serverIP = "192.168.8.101"; // YOUR COMPUTER IP
-const String serverBaseURL = "http://" + serverIP + "/jlink-pos";
+// ⚠️ IMPORTANT: Replace with YOUR computer's local IP address ⚠️
+// To find your IP: Open CMD and type: ipconfig
+// Look for "IPv4 Address" under your active network adapter
+const String serverIP = "192.168.8.80"; // CHANGE THIS TO YOUR COMPUTER'S IP!
+
+const String serverBaseURL = "http://" + serverIP + "/jlink-pos-web";
 const String scannerAPI = serverBaseURL + "/api/scanner.php";
 const String testAPI = serverBaseURL + "/api/test.php";
 
@@ -43,8 +46,10 @@ void setup() {
   initializePins();
   showStartupMessage();
   connectToWiFi();
+  testXAMPPConnection();
   
   Serial.println("🚀 JLINK POS Scanner System Ready!");
+  Serial.println("📡 Server: " + serverBaseURL);
   beep(1);
 }
 
@@ -67,13 +72,57 @@ void loop() {
   delay(100);
 }
 
+// ==================== TEST XAMPP CONNECTION ====================
+void testXAMPPConnection() {
+  Serial.println("🧪 Testing XAMPP connection...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Testing XAMPP");
+  lcd.setCursor(0, 1);
+  lcd.print("Please wait...");
+  
+  HTTPClient http;
+  http.begin(testAPI);
+  http.setTimeout(10000);
+  
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String response = http.getString();
+    Serial.println("✅ XAMPP Test Response:");
+    Serial.println(response);
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("XAMPP CONNECTED");
+    lcd.setCursor(0, 1);
+    lcd.print("System Ready!");
+    beep(2);
+    delay(2000);
+  } else {
+    Serial.println("❌ XAMPP Test Failed!");
+    Serial.println("Error Code: " + String(httpCode));
+    Serial.println("Error: " + http.errorToString(httpCode));
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("XAMPP ERROR!");
+    lcd.setCursor(0, 1);
+    lcd.print("Check server");
+    beep(3);
+    delay(3000);
+  }
+  
+  http.end();
+}
+
 // ==================== QR SCANNER HANDLING ====================
 void handleQRScanner() {
   if (Serial2.available()) {
     String qrData = Serial2.readStringUntil('\n');
     qrData.trim();
     
-    if (qrData.length() > 0 && qrData.length() < 100) {
+    if (qrData.length() > 0 && qrData.length() < 200) {
       Serial.println("📱 QR Code Scanned: " + qrData);
       lastQRScan = millis();
       scanCount++;
@@ -93,14 +142,14 @@ void handleQRScanner() {
       }
       lcd.print(displayCode);
       
-      // Send to server
+      // Send to XAMPP server
       processQRCode(qrData);
     }
   }
 }
 
 String extractProductCode(String qrData) {
-  // Your Python QR format: Name|Price|MFD|EXP|ProductCode
+  // Python QR format: Name|Price|MFD|EXP|ProductCode
   int lastPipe = qrData.lastIndexOf('|');
   if (lastPipe != -1) {
     return qrData.substring(lastPipe + 1);
@@ -122,11 +171,11 @@ void processQRCode(String qrCode) {
   HTTPClient http;
   bool success = false;
   
-  Serial.println("📡 Sending to: " + scannerAPI);
+  Serial.println("📡 Sending to XAMPP: " + scannerAPI);
   
   http.begin(scannerAPI);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(15000); // 15 second timeout
+  http.setTimeout(15000);
   
   // Create JSON payload
   DynamicJsonDocument doc(512);
@@ -137,7 +186,7 @@ void processQRCode(String qrCode) {
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.println("📦 Sending data...");
+  Serial.println("📦 Sending JSON: " + jsonString);
   
   int httpResponseCode = http.POST(jsonString);
   
@@ -163,6 +212,9 @@ void processQRCode(String qrCode) {
       beep(2);
     } else {
       Serial.println("❌ Server error");
+      if (error) {
+        Serial.println("JSON parse error: " + String(error.c_str()));
+      }
       showErrorOnLCD("SERVER ERROR");
     }
   } else {
@@ -171,6 +223,11 @@ void processQRCode(String qrCode) {
     
     if (httpResponseCode == -1) {
       showErrorOnLCD("NO CONNECTION");
+      Serial.println("⚠️ Check if XAMPP Apache is running!");
+      Serial.println("⚠️ Check if IP address is correct: " + serverIP);
+    } else if (httpResponseCode == 404) {
+      showErrorOnLCD("FILE NOT FOUND");
+      Serial.println("⚠️ Check if files are in: C:/xampp/htdocs/jlink-pos-web/");
     } else {
       showErrorOnLCD("HTTP ERROR");
     }
@@ -199,9 +256,9 @@ void initializeLCD() {
 void showStartupMessage() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(" JLINK POS v3.0 ");
+  lcd.print(" JLINK POS v4.0 ");
   lcd.setCursor(0, 1);
-  lcd.print("  INITIALIZING...");
+  lcd.print("XAMPP MODE");
   delay(2000);
 }
 
@@ -271,12 +328,13 @@ void connectToWiFi() {
     wifiConnected = true;
     Serial.println("\n✅ WiFi Connected!");
     Serial.println("📶 IP: " + WiFi.localIP().toString());
+    Serial.println("🖥️  Server IP: " + serverIP);
     
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("WI-FI CONNECTED");
     lcd.setCursor(0, 1);
-    lcd.print("Ready to scan!");
+    lcd.print("IP: " + WiFi.localIP().toString().substring(0, 15));
     digitalWrite(STATUS_LED, HIGH);
     delay(2000);
     
