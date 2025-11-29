@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
+#include <WiFiManager.h>
+#include <Preferences.h>
 
 // ==================== HARDWARE CONFIGURATION ====================
 #define QR_SCANNER_RX 16
@@ -12,57 +14,111 @@
 #define LCD_ROWS 2
 #define STATUS_LED 2
 #define BUZZER_PIN 4
+#define CONFIG_BUTTON 0  // Boot button for manual config mode
 
-// ==================== WIFI CONFIGURATION ====================
-const char* ssid = "SCAM ALERT";
-const char* password = "Fakemode@06";
+// ==================== VERCEL DEPLOYMENT CONFIGURATION ====================
+// 🌐 YOUR VERCEL DEPLOYMENT URL - CHANGE THIS!
+// Example: "https://jlink-pos-web.vercel.app" or "https://your-project.vercel.app"
+const String VERCEL_URL = "https://jlink-pos-web.vercel.app";  // ⚠️ CHANGE THIS TO YOUR VERCEL URL!
 
-// ==================== XAMPP SERVER CONFIGURATION ====================
-// ⚠️ IMPORTANT: Replace with YOUR computer's local IP address ⚠️
-// To find your IP: Open CMD and type: ipconfig
-// Look for "IPv4 Address" under your active network adapter
-const String serverIP = "192.168.8.80"; // CHANGE THIS TO YOUR COMPUTER'S IP!
-
-const String serverBaseURL = "http://" + serverIP + "/jlink-pos-web";
-const String scannerAPI = serverBaseURL + "/api/scanner.php";
-const String testAPI = serverBaseURL + "/api/test.php";
+const String scannerAPI = VERCEL_URL + "/api/scanner";
+const String testAPI = VERCEL_URL + "/api/test";
 
 // ==================== GLOBAL OBJECTS ====================
 LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, LCD_COLS, LCD_ROWS);
+WiFiManager wm;
+Preferences preferences;
 
 // ==================== VARIABLES ====================
 unsigned long lastWifiCheck = 0;
 unsigned long lastQRScan = 0;
+unsigned long configButtonPressTime = 0;
 bool wifiConnected = false;
+bool configMode = false;
 int scanCount = 0;
 String currentProductCode = "";
+String lastConnectedSSID = "";
 
 // ==================== SETUP ====================
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, QR_SCANNER_RX, QR_SCANNER_TX);
   
-  initializeLCD();
   initializePins();
+  initializeLCD();
+  loadPreferences();
   showStartupMessage();
-  connectToWiFi();
-  testXAMPPConnection();
+  
+  // Check if config button is pressed during startup
+  if (digitalRead(CONFIG_BUTTON) == LOW) {
+    Serial.println("⚙️ Config button pressed - Entering configuration mode");
+    delay(1000); // Debounce
+    enterConfigMode();
+  } else {
+    connectToWiFi();
+  }
+  
+  if (wifiConnected) {
+    testVercelConnection();
+  }
   
   Serial.println("🚀 JLINK POS Scanner System Ready!");
-  Serial.println("📡 Server: " + serverBaseURL);
+  Serial.println("📡 Vercel Server: " + VERCEL_URL);
   beep(1);
 }
 
 void initializePins() {
   pinMode(STATUS_LED, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(CONFIG_BUTTON, INPUT_PULLUP);
   digitalWrite(STATUS_LED, LOW);
+}
+
+void loadPreferences() {
+  preferences.begin("jlink-pos", false);
+  scanCount = preferences.getInt("scanCount", 0);
+  lastConnectedSSID = preferences.getString("lastSSID", "");
+  preferences.end();
+  
+  if (lastConnectedSSID.length() > 0) {
+    Serial.println("📱 Last connected to: " + lastConnectedSSID);
+  }
+}
+
+void savePreferences() {
+  preferences.begin("jlink-pos", false);
+  preferences.putInt("scanCount", scanCount);
+  if (WiFi.isConnected()) {
+    preferences.putString("lastSSID", WiFi.SSID());
+  }
+  preferences.end();
 }
 
 // ==================== MAIN LOOP ====================
 void loop() {
+  // Check for long press on config button (3 seconds)
+  if (digitalRead(CONFIG_BUTTON) == LOW) {
+    if (configButtonPressTime == 0) {
+      configButtonPressTime = millis();
+    } else if (millis() - configButtonPressTime > 3000) {
+      Serial.println("⚙️ Config button long press detected");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("ENTERING CONFIG");
+      lcd.setCursor(0, 1);
+      lcd.print("MODE...");
+      beep(2);
+      delay(1000);
+      enterConfigMode();
+      configButtonPressTime = 0;
+    }
+  } else {
+    configButtonPressTime = 0;
+  }
+  
   handleQRScanner();
   
+  // Check WiFi connection every 30 seconds
   if (millis() - lastWifiCheck > 30000) {
     checkWiFiConnection();
     lastWifiCheck = millis();
@@ -72,43 +128,152 @@ void loop() {
   delay(100);
 }
 
-// ==================== TEST XAMPP CONNECTION ====================
-void testXAMPPConnection() {
-  Serial.println("🧪 Testing XAMPP connection...");
+// ==================== WIFI CONFIGURATION MODE ====================
+void enterConfigMode() {
+  configMode = true;
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Testing XAMPP");
+  lcd.print("CONFIG MODE");
+  lcd.setCursor(0, 1);
+  lcd.print("Connect to AP");
+  
+  Serial.println("📡 Starting Configuration Portal");
+  Serial.println("📱 Connect to WiFi: 'JLINK-POS-Config'");
+  Serial.println("🔒 Password: 'jlinkpos123'");
+  Serial.println("🌐 Configure at: http://192.168.4.1");
+  
+  beep(2);
+  
+  // Reset settings if needed (uncomment for testing)
+  // wm.resetSettings();
+  
+  // Set custom timeouts
+  wm.setConfigPortalTimeout(180); // 3 minutes timeout
+  wm.setConnectTimeout(20); // 20 seconds to connect
+  wm.setAPStaticIPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+  
+  // FIX: Create menu vector properly
+  std::vector<const char *> menu = {"wifi", "info", "exit"};
+  wm.setMenu(menu);
+  
+  // Set custom portal settings
+  wm.setClass("invert"); // Dark theme
+  wm.setShowInfoUpdate(false);
+  wm.setShowInfoErase(true);
+  
+  // Set callback for when connecting to WiFi
+  wm.setSaveConfigCallback(saveConfigCallback);
+  
+  // Start configuration portal with custom AP name and password
+  bool res = wm.startConfigPortal("JLINK-POS-Config", "jlinkpos06");
+  
+  if (res) {
+    Serial.println("✅ Connected to WiFi!");
+    wifiConnected = true;
+    savePreferences();
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("CONNECTED!");
+    lcd.setCursor(0, 1);
+    String ssid = WiFi.SSID();
+    if (ssid.length() > 16) {
+      ssid = ssid.substring(0, 16);
+    }
+    lcd.print(ssid);
+    
+    digitalWrite(STATUS_LED, HIGH);
+    beep(2);
+    delay(2000);
+    
+    // Test Vercel connection
+    testVercelConnection();
+  } else {
+    Serial.println("❌ Configuration failed or timeout");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("CONFIG TIMEOUT");
+    lcd.setCursor(0, 1);
+    lcd.print("Restarting...");
+    beep(3);
+    delay(2000);
+    ESP.restart();
+  }
+  
+  configMode = false;
+}
+
+// Callback function for WiFiManager
+void saveConfigCallback() {
+  Serial.println("✅ WiFi credentials saved!");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WIFI SAVED!");
+  lcd.setCursor(0, 1);
+  lcd.print("Connecting...");
+}
+
+// ==================== TEST VERCEL CONNECTION ====================
+void testVercelConnection() {
+  Serial.println("🧪 Testing Vercel connection...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Testing Vercel");
   lcd.setCursor(0, 1);
   lcd.print("Please wait...");
   
   HTTPClient http;
   http.begin(testAPI);
-  http.setTimeout(10000);
+  http.setTimeout(15000);
+  
+  Serial.println("📡 Connecting to: " + testAPI);
   
   int httpCode = http.GET();
   
   if (httpCode == 200) {
     String response = http.getString();
-    Serial.println("✅ XAMPP Test Response:");
+    Serial.println("✅ Vercel Test Response:");
     Serial.println(response);
+    
+    // Parse JSON response
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, response);
+    
+    if (!error) {
+      String status = doc["status"] | "unknown";
+      String message = doc["message"] | "Connected";
+      
+      Serial.println("📊 Status: " + status);
+      Serial.println("💬 Message: " + message);
+      
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("VERCEL ONLINE!");
+      lcd.setCursor(0, 1);
+      lcd.print("System Ready");
+      beep(2);
+      delay(2000);
+    }
+  } else if (httpCode > 0) {
+    Serial.println("⚠️ Vercel Test - HTTP Code: " + String(httpCode));
+    Serial.println("Response: " + http.getString());
     
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("XAMPP CONNECTED");
+    lcd.print("VERCEL WARNING");
     lcd.setCursor(0, 1);
-    lcd.print("System Ready!");
+    lcd.print("Code: " + String(httpCode));
     beep(2);
     delay(2000);
   } else {
-    Serial.println("❌ XAMPP Test Failed!");
-    Serial.println("Error Code: " + String(httpCode));
+    Serial.println("❌ Vercel Test Failed!");
     Serial.println("Error: " + http.errorToString(httpCode));
     
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("XAMPP ERROR!");
+    lcd.print("VERCEL ERROR!");
     lcd.setCursor(0, 1);
-    lcd.print("Check server");
+    lcd.print("Check URL");
     beep(3);
     delay(3000);
   }
@@ -126,6 +291,7 @@ void handleQRScanner() {
       Serial.println("📱 QR Code Scanned: " + qrData);
       lastQRScan = millis();
       scanCount++;
+      savePreferences();
       
       // Extract product code from QR data
       currentProductCode = extractProductCode(qrData);
@@ -142,18 +308,39 @@ void handleQRScanner() {
       }
       lcd.print(displayCode);
       
-      // Send to XAMPP server
+      // Send to Vercel API
       processQRCode(qrData);
     }
   }
 }
 
 String extractProductCode(String qrData) {
-  // Python QR format: Name|Price|MFD|EXP|ProductCode
+  // Handle different QR code formats
+  
+  // Format 1: Pipe-delimited (Name|Price|MFD|EXP|ProductCode)
   int lastPipe = qrData.lastIndexOf('|');
-  if (lastPipe != -1) {
-    return qrData.substring(lastPipe + 1);
+  if (lastPipe != -1 && lastPipe < qrData.length() - 1) {
+    String code = qrData.substring(lastPipe + 1);
+    code.trim();
+    if (code.length() > 0) {
+      return code;
+    }
   }
+  
+  // Format 2: PROD: prefix
+  if (qrData.indexOf("PROD:") != -1) {
+    int startPos = qrData.indexOf("PROD:") + 5;
+    int endPos = qrData.indexOf('|', startPos);
+    if (endPos == -1) endPos = qrData.indexOf('\n', startPos);
+    if (endPos == -1) endPos = qrData.length();
+    String code = qrData.substring(startPos, endPos);
+    code.trim();
+    if (code.length() > 0) {
+      return code;
+    }
+  }
+  
+  // Format 3: Plain code
   return qrData;
 }
 
@@ -171,7 +358,7 @@ void processQRCode(String qrCode) {
   HTTPClient http;
   bool success = false;
   
-  Serial.println("📡 Sending to XAMPP: " + scannerAPI);
+  Serial.println("📡 Sending to Vercel: " + scannerAPI);
   
   http.begin(scannerAPI);
   http.addHeader("Content-Type", "application/json");
@@ -182,6 +369,7 @@ void processQRCode(String qrCode) {
   doc["qr_code"] = qrCode;
   doc["scanner_id"] = "ESP32_GM67";
   doc["timestamp"] = millis();
+  doc["product_code"] = currentProductCode;
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -196,12 +384,13 @@ void processQRCode(String qrCode) {
     String response = http.getString();
     Serial.println("📡 Response: " + response);
     
-    DynamicJsonDocument responseDoc(512);
+    DynamicJsonDocument responseDoc(1024);
     DeserializationError error = deserializeJson(responseDoc, response);
     
     if (!error && responseDoc["success"] == true) {
       success = true;
-      Serial.println("✅ Sent to POS successfully!");
+      String message = responseDoc["message"] | "Sent to POS";
+      Serial.println("✅ " + message);
       
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -214,23 +403,30 @@ void processQRCode(String qrCode) {
       Serial.println("❌ Server error");
       if (error) {
         Serial.println("JSON parse error: " + String(error.c_str()));
+      } else {
+        String errorMsg = responseDoc["error"] | "Unknown error";
+        Serial.println("Error: " + errorMsg);
       }
       showErrorOnLCD("SERVER ERROR");
     }
-  } else {
+  } else if (httpResponseCode > 0) {
     Serial.println("❌ HTTP Error: " + String(httpResponseCode));
-    Serial.println("❌ Error: " + http.errorToString(httpResponseCode));
+    String response = http.getString();
+    Serial.println("Response: " + response);
     
-    if (httpResponseCode == -1) {
-      showErrorOnLCD("NO CONNECTION");
-      Serial.println("⚠️ Check if XAMPP Apache is running!");
-      Serial.println("⚠️ Check if IP address is correct: " + serverIP);
-    } else if (httpResponseCode == 404) {
-      showErrorOnLCD("FILE NOT FOUND");
-      Serial.println("⚠️ Check if files are in: C:/xampp/htdocs/jlink-pos-web/");
-    } else {
-      showErrorOnLCD("HTTP ERROR");
-    }
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("HTTP ERROR");
+    lcd.setCursor(0, 1);
+    lcd.print("Code: " + String(httpResponseCode));
+    
+    success = false;
+  } else {
+    Serial.println("❌ Connection Error: " + http.errorToString(httpResponseCode));
+    
+    showErrorOnLCD("NO CONNECTION");
+    Serial.println("⚠️ Check WiFi connection");
+    Serial.println("⚠️ Check Vercel URL: " + VERCEL_URL);
   }
   
   http.end();
@@ -256,9 +452,16 @@ void initializeLCD() {
 void showStartupMessage() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(" JLINK POS v4.0 ");
+  lcd.print(" JLINK POS v5.0 ");
   lcd.setCursor(0, 1);
-  lcd.print("XAMPP MODE");
+  lcd.print("VERCEL MODE");
+  delay(2000);
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Hold BOOT for");
+  lcd.setCursor(0, 1);
+  lcd.print("WiFi Config");
   delay(2000);
 }
 
@@ -276,80 +479,121 @@ void showErrorOnLCD(String error) {
 
 void updateStatusDisplay() {
   static unsigned long lastDisplayUpdate = 0;
-  if (millis() - lastDisplayUpdate < 2000) return;
+  if (millis() - lastDisplayUpdate < 3000) return;
   lastDisplayUpdate = millis();
   
+  // Don't update if we just scanned something
   if (millis() - lastQRScan < 4000) return;
   
   lcd.clear();
   lcd.setCursor(0, 0);
   
   if (wifiConnected) {
-    lcd.print("READY - ONLINE");
+    lcd.print("ONLINE - READY");
+    lcd.setCursor(0, 1);
+    String ssid = WiFi.SSID();
+    if (ssid.length() > 16) {
+      ssid = ssid.substring(0, 16);
+    }
+    lcd.print(ssid);
   } else {
-    lcd.print("READY - OFFLINE");
+    lcd.print("OFFLINE!");
+    lcd.setCursor(0, 1);
+    lcd.print("Check WiFi");
   }
-  
-  lcd.setCursor(0, 1);
-  lcd.print("Scans: " + String(scanCount));
 }
 
 // ==================== WIFI FUNCTIONS ====================
-String getConnectingDots(int attempts) {
-  int dotCount = attempts % 4;
-  String dots = "";
-  for (int i = 0; i < dotCount; i++) {
-    dots += ".";
-  }
-  return dots;
-}
-
 void connectToWiFi() {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("CONNECTING WiFi");
+  lcd.setCursor(0, 1);
+  lcd.print("Please wait...");
   
-  Serial.println("📡 Connecting to: " + String(ssid));
-  WiFi.begin(ssid, password);
+  Serial.println("📡 Attempting WiFi connection...");
   
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(1000);
-    Serial.print(".");
-    attempts++;
-    digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-    
-    lcd.setCursor(0, 1);
-    lcd.print("Connecting" + getConnectingDots(attempts));
-    lcd.print("    ");
-  }
+  // Set WiFiManager timeouts
+  wm.setConnectTimeout(20); // 20 seconds timeout for connecting
+  wm.setConfigPortalTimeout(0); // No timeout in config portal mode
   
-  if (WiFi.status() == WL_CONNECTED) {
+  // Disable debug output (reduce serial spam)
+  wm.setDebugOutput(true);
+  
+  // Try to auto-connect using saved credentials
+  // If it fails, it will start a config portal
+  bool res = wm.autoConnect("JLINK-POS-Config", "jlinkpos123");
+  
+  if (res) {
     wifiConnected = true;
-    Serial.println("\n✅ WiFi Connected!");
+    Serial.println("✅ WiFi Connected!");
+    Serial.println("📶 SSID: " + WiFi.SSID());
     Serial.println("📶 IP: " + WiFi.localIP().toString());
-    Serial.println("🖥️  Server IP: " + serverIP);
+    Serial.println("📶 Signal: " + String(WiFi.RSSI()) + " dBm");
+    
+    savePreferences();
     
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("WI-FI CONNECTED");
     lcd.setCursor(0, 1);
-    lcd.print("IP: " + WiFi.localIP().toString().substring(0, 15));
+    String ssid = WiFi.SSID();
+    if (ssid.length() > 16) {
+      ssid = ssid.substring(0, 16);
+    }
+    lcd.print(ssid);
+    
     digitalWrite(STATUS_LED, HIGH);
+    beep(2);
     delay(2000);
     
   } else {
     wifiConnected = false;
-    Serial.println("\n❌ WiFi Failed!");
-    showErrorOnLCD("WI-FI FAILED");
+    Serial.println("❌ WiFi Connection Failed!");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WI-FI FAILED!");
+    lcd.setCursor(0, 1);
+    lcd.print("Press BOOT");
+    
     digitalWrite(STATUS_LED, LOW);
+    beep(3);
+    
+    Serial.println("⚙️ Press BOOT button for 3 seconds to enter config mode");
   }
 }
 
 void checkWiFiConnection() {
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnected = false;
-    connectToWiFi();
+    Serial.println("⚠️ WiFi disconnected! Reconnecting...");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("RECONNECTING");
+    lcd.setCursor(0, 1);
+    lcd.print("WiFi...");
+    
+    WiFi.reconnect();
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 10) {
+      delay(1000);
+      Serial.print(".");
+      attempts++;
+      digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiConnected = true;
+      Serial.println("\n✅ Reconnected!");
+      digitalWrite(STATUS_LED, HIGH);
+    } else {
+      Serial.println("\n❌ Reconnection failed");
+      showErrorOnLCD("NO WIFI!");
+      digitalWrite(STATUS_LED, LOW);
+    }
   }
 }
 
