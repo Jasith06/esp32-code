@@ -139,7 +139,7 @@ void enterConfigMode() {
   
   Serial.println("📡 Starting Configuration Portal");
   Serial.println("📱 Connect to WiFi: 'JLINK-POS-Config'");
-  Serial.println("🔒 Password: 'jlinkpos123'");
+  Serial.println("🔒 Password: 'jlinkpos06'");
   Serial.println("🌐 Configure at: http://192.168.4.1");
   
   beep(2);
