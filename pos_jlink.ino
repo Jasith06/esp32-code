@@ -215,10 +215,10 @@ void saveConfigCallback() {
 
 // ==================== TEST VERCEL CONNECTION ====================
 void testVercelConnection() {
-  Serial.println("🧪 Testing Vercel connection...");
+  Serial.println("🧪 Testing JLINK connection...");
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Testing Vercel");
+  lcd.print("Testing JLINK");
   lcd.setCursor(0, 1);
   lcd.print("Please wait...");
   
@@ -232,7 +232,7 @@ void testVercelConnection() {
   
   if (httpCode == 200) {
     String response = http.getString();
-    Serial.println("✅ Vercel Test Response:");
+    Serial.println("✅ JLINK Test Response:");
     Serial.println(response);
     
     // Parse JSON response
@@ -248,7 +248,7 @@ void testVercelConnection() {
       
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("VERCEL ONLINE!");
+      lcd.print("JLINK ONLINE!");
       lcd.setCursor(0, 1);
       lcd.print("System Ready");
       beep(2);
@@ -266,12 +266,12 @@ void testVercelConnection() {
     beep(2);
     delay(2000);
   } else {
-    Serial.println("❌ Vercel Test Failed!");
+    Serial.println("❌ WEB Test Failed!");
     Serial.println("Error: " + http.errorToString(httpCode));
     
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("VERCEL ERROR!");
+    lcd.print("WEB ERROR!");
     lcd.setCursor(0, 1);
     lcd.print("Check URL");
     beep(3);
@@ -394,9 +394,9 @@ void processQRCode(String qrCode) {
       
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("SENT TO POS!");
+      lcd.print("SENT TO JLINK");
       lcd.setCursor(0, 1);
-      lcd.print("Scan #" + String(scanCount));
+     // lcd.print("Scan #" + String(scanCount));
       
       beep(2);
     } else {
@@ -452,16 +452,16 @@ void initializeLCD() {
 void showStartupMessage() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(" JLINK POS v5.0 ");
+  lcd.print(" JLINK POS v1.0 ");
   lcd.setCursor(0, 1);
-  lcd.print("VERCEL MODE");
+  lcd.print("ON MODE");
   delay(2000);
   
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Hold BOOT for");
+  lcd.print("SEARCHING...");
   lcd.setCursor(0, 1);
-  lcd.print("WiFi Config");
+  lcd.print("WiFi");
   delay(2000);
 }
 
