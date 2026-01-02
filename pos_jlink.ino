@@ -255,12 +255,12 @@ void testVercelConnection() {
       delay(2000);
     }
   } else if (httpCode > 0) {
-    Serial.println("⚠️ Vercel Test - HTTP Code: " + String(httpCode));
+    Serial.println("⚠️ WEB Test - HTTP Code: " + String(httpCode));
     Serial.println("Response: " + http.getString());
     
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("VERCEL WARNING");
+    lcd.print("WEB WARNING");
     lcd.setCursor(0, 1);
     lcd.print("Code: " + String(httpCode));
     beep(2);
@@ -389,7 +389,7 @@ void processQRCode(String qrCode) {
     
     if (!error && responseDoc["success"] == true) {
       success = true;
-      String message = responseDoc["message"] | "Sent to POS";
+      String message = responseDoc["message"] | "Sent to JLINK";
       Serial.println("✅ " + message);
       
       lcd.clear();
@@ -452,9 +452,9 @@ void initializeLCD() {
 void showStartupMessage() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(" JLINK POS v1.0 ");
+  lcd.print("WELCOME TO JLINK");
   lcd.setCursor(0, 1);
-  lcd.print("ON MODE");
+  lcd.print("v1.0");
   delay(2000);
   
   lcd.clear();
@@ -489,13 +489,13 @@ void updateStatusDisplay() {
   lcd.setCursor(0, 0);
   
   if (wifiConnected) {
-    lcd.print("ONLINE - READY");
+    lcd.print("JLINK - HEARING");
     lcd.setCursor(0, 1);
     String ssid = WiFi.SSID();
     if (ssid.length() > 16) {
       ssid = ssid.substring(0, 16);
     }
-    lcd.print(ssid);
+    //lcd.print(ssid);
   } else {
     lcd.print("OFFLINE!");
     lcd.setCursor(0, 1);
@@ -541,7 +541,7 @@ void connectToWiFi() {
     if (ssid.length() > 16) {
       ssid = ssid.substring(0, 16);
     }
-    lcd.print(ssid);
+     lcd.print(ssid);
     
     digitalWrite(STATUS_LED, HIGH);
     beep(2);
@@ -555,7 +555,7 @@ void connectToWiFi() {
     lcd.setCursor(0, 0);
     lcd.print("WI-FI FAILED!");
     lcd.setCursor(0, 1);
-    lcd.print("Press BOOT");
+    //lcd.print("Press BOOT");
     
     digitalWrite(STATUS_LED, LOW);
     beep(3);
