@@ -495,7 +495,7 @@ void updateStatusDisplay() {
     if (ssid.length() > 16) {
       ssid = ssid.substring(0, 16);
     }
-    //lcd.print(ssid);
+
   } else {
     lcd.print("OFFLINE!");
     lcd.setCursor(0, 1);
